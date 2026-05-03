@@ -1,0 +1,10 @@
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.108.0
+gpxpy==1.6.2
+pandas==2.2.0
+haversine==2.7.0
+requests==2.31.0
+python-dotenv==1.0.0
+nicegui==1.4.21
+plotly==5.18.0
