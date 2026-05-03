@@ -224,6 +224,7 @@ class TCXAnalyzer:
                         pass
 
         metrics["heart_rates"] = heart_rates
+        metrics["trackpoints"] = trackpoints
 
         # Calculate speed if we have distance and duration
         if metrics["duration"] > 0 and metrics["distance"] > 0:

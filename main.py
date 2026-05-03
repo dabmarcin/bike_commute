@@ -57,19 +57,7 @@ class BikeCommuteDashboard:
             # Stats table
             with ui.card().classes("w-full"):
                 ui.label("Recent Rides").classes("text-lg font-bold")
-                self.rides_table = ui.table(
-                    columns=[
-                        {"name": "date", "label": "Date", "field": "date"},
-                        {"name": "duration", "label": "Duration", "field": "duration_str"},
-                        {"name": "distance", "label": "Distance (km)", "field": "distance"},
-                        {"name": "avg_speed", "label": "Avg Speed (km/h)", "field": "avg_speed"},
-                        {"name": "avg_hr", "label": "HR (bpm)", "field": "avg_hr"},
-                        {"name": "calories", "label": "Calories", "field": "calories"},
-                        {"name": "wind_component", "label": "Wind (km/h)", "field": "wind_component"},
-                        {"name": "route_type", "label": "Route", "field": "route_type"},
-                    ],
-                    rows=[],
-                ).classes("w-full")
+                self.rides_container = ui.column().classes("w-full gap-2")
 
         self.refresh_dashboard()
 
@@ -128,24 +116,30 @@ class BikeCommuteDashboard:
             )
             print(f"    ✓ PR: {best_ride['duration']}s")
 
-        # Update table
-        print("  [refresh_dashboard] Updating table with rides...")
-        table_data = []
+        # Update rides list
+        print("  [refresh_dashboard] Updating rides list...")
+        self.rides_container.clear()
+
         for ride in rides[:20]:  # Show last 20 rides
-            table_data.append(
-                {
-                    "date": ride["date"][:10],
-                    "duration_str": self.format_duration(ride["duration"]),
-                    "distance": f"{ride['distance']:.2f}",
-                    "avg_speed": f"{ride['avg_speed']:.1f}",
-                    "avg_hr": ride["avg_hr"] or "—",
-                    "calories": ride.get("calories") or "—",
-                    "wind_component": self.format_wind(ride["wind_speed"], ride["wind_component"]),
-                    "route_type": ride["route_type"],
-                }
-            )
-        self.rides_table.rows = table_data
-        print(f"    ✓ Table updated with {len(table_data)} rows")
+            with self.rides_container:
+                def create_ride_click(ride_id):
+                    async def on_click():
+                        await ui.run_javascript(f"window.location.href = '/ride/{ride_id}'")
+                    return on_click
+
+                with ui.card().classes("w-full"):
+                    with ui.row().classes("w-full justify-between items-center"):
+                        with ui.column().classes("flex-1"):
+                            ui.label(f"{ride['date'][:10]} • {ride['route_type']}").classes("text-sm text-gray-400")
+                            ui.label(f"{self.format_duration(ride['duration'])} • {ride['distance']:.2f} km").classes("text-lg font-bold")
+                            with ui.row().classes("gap-4 text-sm"):
+                                ui.label(f"Spd: {ride['avg_speed']:.1f} km/h")
+                                ui.label(f"HR: {ride['avg_hr'] or '—'} bpm")
+                                ui.label(f"Cal: {ride.get('calories') or '—'}")
+                                ui.label(f"Wind: {self.format_wind(ride['wind_speed'], ride['wind_component'])}")
+                        ui.button("View", on_click=create_ride_click(ride['id'])).props("color=primary")
+
+        print(f"    ✓ Rides list updated with {len(rides[:20])} rows")
 
     def refresh_chart(self):
         """Refresh the ride duration chart"""
@@ -258,7 +252,7 @@ class BikeCommuteDashboard:
 
                     # Insert into database
                     print(f"    Saving to database...")
-                    success = self.db.insert_ride(
+                    ride_id = self.db.insert_ride(
                         drive_file_id=tcx_file,  # Use file path as ID
                         date=metrics["date"],
                         duration=metrics["duration"],
@@ -274,8 +268,23 @@ class BikeCommuteDashboard:
                         route_type=metrics["route_type"],
                     )
 
-                    if success:
-                        print(f"    ✓ Saved successfully")
+                    if ride_id:
+                        # Save trackpoints
+                        if metrics.get("trackpoints"):
+                            print(f"    Saving {len(metrics['trackpoints'])} trackpoints, {len(metrics['heart_rates'])} HR values")
+                            trackpoints_with_hr = []
+                            for i, tp in enumerate(metrics["trackpoints"]):
+                                trackpoints_with_hr.append({
+                                    "time": tp.get("time"),
+                                    "lat": tp.get("lat"),
+                                    "lon": tp.get("lon"),
+                                    "hr": metrics["heart_rates"][i] if i < len(metrics["heart_rates"]) else None
+                                })
+                            self.db.insert_trackpoints(ride_id, trackpoints_with_hr)
+                            print(f"    ✓ Trackpoints saved")
+                        else:
+                            print(f"    ⚠️ No trackpoints in metrics!")
+                        print(f"    ✓ Saved successfully (ID: {ride_id})")
                         ui.notify(f"Processed: {os.path.basename(tcx_file)}", type="positive")
                     else:
                         print(f"    ⚠ Already processed or duplicate")
@@ -321,13 +330,146 @@ class BikeCommuteDashboard:
 
 # Initialize the app
 app = None
+db = None
 
 
 @ui.page("/")
 def index():
-    print("\n>>> PAGE LOAD: index() called")
     global app
+    print("\n>>> PAGE LOAD: index() called")
     app = BikeCommuteDashboard()
+
+
+@ui.page("/ride/{ride_id}")
+def ride_detail(ride_id: int):
+    global db
+    if db is None:
+        db = BikeCommuteDB()
+
+    print(f"\n>>> RIDE DETAIL PAGE: ride_id={ride_id}")
+    ride = db.get_ride_by_id(ride_id)
+    if not ride:
+        ui.label("Ride not found").classes("text-xl text-red-500")
+        return
+
+    trackpoints = db.get_trackpoints(ride_id)
+    print(f"    Loaded {len(trackpoints)} trackpoints")
+
+    with ui.card().classes("w-full"):
+        # Header with ride info
+        with ui.row().classes("w-full items-center justify-between"):
+            ui.label(f"Ride Details — {ride['date'][:10]}").classes("text-2xl font-bold")
+            ui.button("← Back", on_click=lambda: ui.navigate("/"))
+
+        # Stats grid
+        with ui.row().classes("w-full gap-4"):
+            ui.label(f"Duration: {ride['duration']//60}m {ride['duration']%60}s").classes("text-lg")
+            ui.label(f"Distance: {ride['distance']:.2f} km").classes("text-lg")
+            ui.label(f"Avg Speed: {ride['avg_speed']:.1f} km/h").classes("text-lg")
+            ui.label(f"Avg HR: {ride['avg_hr']} bpm").classes("text-lg")
+            ui.label(f"Route: {ride['route_type']}").classes("text-lg")
+
+        # Map with GPS track
+        if trackpoints:
+            with ui.card().classes("w-full"):
+                ui.label("GPS Track").classes("text-lg font-bold")
+
+                lats = [tp["lat"] for tp in trackpoints]
+                lons = [tp["lon"] for tp in trackpoints]
+
+                fig_map = go.Figure()
+                fig_map.add_trace(go.Scattergeo(
+                    lon=lons,
+                    lat=lats,
+                    mode="lines+markers",
+                    name="Track",
+                    line=dict(color="blue", width=3),
+                    marker=dict(size=4)
+                ))
+
+                center_lat = sum(lats) / len(lats)
+                center_lon = sum(lons) / len(lons)
+
+                fig_map.update_layout(
+                    geo=dict(
+                        scope="world",
+                        projection_type="mercator",
+                        center=dict(lat=center_lat, lon=center_lon),
+                        lataxis=dict(range=[min(lats) - 0.01, max(lats) + 0.01]),
+                        lonaxis=dict(range=[min(lons) - 0.01, max(lons) + 0.01])
+                    ),
+                    margin=dict(l=0, r=0, t=0, b=0),
+                    height=400
+                )
+
+                ui.plotly(fig_map).classes("w-full")
+
+        # HR and Speed charts
+        if trackpoints:
+            times = list(range(len(trackpoints)))
+            hrs = [tp.get("hr") or 0 for tp in trackpoints]
+
+            # Calculate speed between trackpoints (simplified)
+            speeds = []
+            for i in range(len(trackpoints)):
+                if i == 0:
+                    speeds.append(ride["avg_speed"])
+                else:
+                    speeds.append(ride["avg_speed"])
+
+            fig_metrics = go.Figure()
+            fig_metrics.add_trace(go.Scatter(
+                x=times, y=hrs,
+                mode="lines",
+                name="Heart Rate (bpm)",
+                line=dict(color="red", width=2),
+                yaxis="y1"
+            ))
+            fig_metrics.add_trace(go.Scatter(
+                x=times, y=speeds,
+                mode="lines",
+                name="Speed (km/h)",
+                line=dict(color="green", width=2),
+                yaxis="y2"
+            ))
+
+            fig_metrics.update_layout(
+                title="Heart Rate & Speed Over Time",
+                xaxis_title="Trackpoint",
+                yaxis=dict(title="HR (bpm)", position=0),
+                yaxis2=dict(title="Speed (km/h)", overlaying="y", side="right"),
+                hovermode="x unified",
+                template="plotly_dark" if DARK_MODE else "plotly",
+                height=400
+            )
+
+            ui.plotly(fig_metrics).classes("w-full")
+
+        # Trackpoints table
+        if trackpoints:
+            with ui.card().classes("w-full"):
+                ui.label("Trackpoints").classes("text-lg font-bold")
+
+                table_rows = []
+                for i, tp in enumerate(trackpoints):
+                    table_rows.append({
+                        "index": i + 1,
+                        "time": tp["time"][-8:] if tp["time"] else "—",
+                        "lat": f"{tp['lat']:.6f}",
+                        "lon": f"{tp['lon']:.6f}",
+                        "hr": tp.get("hr") or "—"
+                    })
+
+                ui.table(
+                    columns=[
+                        {"name": "index", "label": "#", "field": "index"},
+                        {"name": "time", "label": "Time", "field": "time"},
+                        {"name": "lat", "label": "Latitude", "field": "lat"},
+                        {"name": "lon", "label": "Longitude", "field": "lon"},
+                        {"name": "hr", "label": "HR (bpm)", "field": "hr"},
+                    ],
+                    rows=table_rows,
+                ).classes("w-full")
 
 
 if __name__ in {"__main__", "__mp_main__"}:
