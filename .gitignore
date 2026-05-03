@@ -11,8 +11,8 @@ token.pickle
 *.db
 *.sqlite3
 
-# Downloaded GPX files
-gpx_files/
+# Downloaded TCX files
+tcx_files/
 processed_files.json
 
 # Python
