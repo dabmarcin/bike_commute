@@ -98,6 +98,7 @@ class GoogleDriveManager:
                     spaces="drive",
                     fields="files(id, name, createdTime, modifiedTime)",
                     pageSize=100,
+                    orderBy="modifiedTime desc"
                 )
                 .execute()
             )
@@ -105,24 +106,52 @@ class GoogleDriveManager:
             files = results.get("files", [])
             print(f"📁 Found {len(files)} TCX files in folder:")
             for f in files:
-                print(f"   - {f['name']} (ID: {f['id'][:10]}...)")
+                mod_time = f.get('modifiedTime', 'unknown')[:10]
+                print(f"   - {f['name']} (ID: {f['id'][:10]}..., modified: {mod_time})")
             return files
         except Exception as e:
             print(f"Error listing files: {e}")
             return []
 
     def get_new_files(self):
-        """Get list of unprocessed TCX files"""
+        """Get list of unprocessed TCX files - checks both ID and modification date"""
+        from datetime import datetime, timedelta
+
         all_files = self.list_tcx_files()
         print(f"✓ Total files on Drive: {len(all_files)}")
         print(f"✓ Already processed: {len(self.processed_files['processed'])} files")
 
-        new_files = [
-            f for f in all_files if f["id"] not in self.processed_files["processed"]
-        ]
-        print(f"✓ New files to process: {len(new_files)}")
-        for f in new_files:
-            print(f"   → {f['name']}")
+        new_files = []
+        today = datetime.now().date()
+
+        for f in all_files:
+            file_id = f["id"]
+            is_in_processed = file_id in self.processed_files["processed"]
+
+            # Check modification date
+            mod_time_str = f.get('modifiedTime', '')[:10]  # YYYY-MM-DD
+            try:
+                mod_date = datetime.fromisoformat(mod_time_str).date()
+                is_recent = (today - mod_date).days <= 1  # Modified today or yesterday
+            except:
+                is_recent = False
+                mod_date = None
+
+            # Add file if: not processed OR modified recently (prevents missing re-uploaded files)
+            if not is_in_processed or is_recent:
+                new_files.append(f)
+                status = "NEW ID" if not is_in_processed else "RE-MODIFIED"
+                print(f"   → {f['name']} ({status}, mod: {mod_date})")
+
+        print(f"✓ New/modified files to process: {len(new_files)}")
+
+        # Debug: show all files with status
+        if not new_files and all_files:
+            print("⚠️  No new files found. Showing all files:")
+            for f in all_files:
+                mod_time_str = f.get('modifiedTime', '')[:10]
+                in_db = "✓ PROCESSED" if f["id"] in self.processed_files["processed"] else "✗ NOT IN DB"
+                print(f"   {f['name']} ({mod_time_str}) - {in_db}")
 
         return new_files
 
@@ -177,15 +206,40 @@ class GoogleDriveManager:
         """Get count of all processed files"""
         return len(self.processed_files["processed"])
 
+    def reset_processed_files_after_date(self, date_str):
+        """Reset processed status for files modified after given date (YYYY-MM-DD)
+        Useful for forcing re-sync of files uploaded on a specific date"""
+        from datetime import datetime
+
+        all_files = self.list_tcx_files()
+        files_to_reset = []
+
+        for f in all_files:
+            mod_time_str = f.get('modifiedTime', '')[:10]
+            if mod_time_str >= date_str:  # Files modified on or after date_str
+                if f["id"] in self.processed_files["processed"]:
+                    self.processed_files["processed"].remove(f["id"])
+                    files_to_reset.append(f["name"])
+
+        if files_to_reset:
+            self._save_processed_files()
+            print(f"✓ Reset {len(files_to_reset)} files for re-sync:")
+            for name in files_to_reset:
+                print(f"   - {name}")
+        else:
+            print(f"No files found modified after {date_str}")
+
+        return files_to_reset
+
 
 if __name__ == "__main__":
     # Test the Google Drive integration
     manager = GoogleDriveManager()
     print(f"Total processed files: {manager.get_all_processed_files()}")
 
-    # List all GPX files
-    all_files = manager.list_gpx_files()
-    print(f"Total GPX files on Drive: {len(all_files)}")
+    # List all TCX files
+    all_files = manager.list_tcx_files()
+    print(f"Total TCX files on Drive: {len(all_files)}")
 
     # Sync new files
     downloaded = manager.sync_new_files()

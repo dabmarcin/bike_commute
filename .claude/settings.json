@@ -5,7 +5,9 @@
       "PowerShell(Get-Process python -ErrorAction SilentlyContinue)",
       "PowerShell(Stop-Process -Force)",
       "PowerShell(\\(Get-Content \"c:\\\\Projects\\\\BikeCommute\\\\dane\\\\CYCLING-01.05.2026 09.40.tcx\" -TotalCount 40\\) | Select-Object -First 40)",
-      "Bash(python tcx_analyzer.py \"tcx_files/CYCLING-01.05.2026 09.40.tcx\")"
+      "Bash(python tcx_analyzer.py \"tcx_files/CYCLING-01.05.2026 09.40.tcx\")",
+      "Bash(Get-ChildItem -Path \".\" -File)",
+      "Bash(Select-Object Name)"
     ]
   }
 }

@@ -128,7 +128,6 @@ class TCXAnalyzer:
             "calories": 0,
             "route_type": "Other",
             "avg_bearing": None,
-            "heart_rates": [],
         }
 
         # Get start time from Lap attribute
@@ -222,9 +221,6 @@ class TCXAnalyzer:
                         heart_rates.append(int(hr_elem.text))
                     except ValueError:
                         pass
-
-        metrics["heart_rates"] = heart_rates
-        metrics["trackpoints"] = trackpoints
 
         # Calculate speed if we have distance and duration
         if metrics["duration"] > 0 and metrics["distance"] > 0:

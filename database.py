@@ -44,21 +44,6 @@ class BikeCommuteDB:
             """
         )
 
-        # Create trackpoints table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS trackpoints (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ride_id INTEGER NOT NULL,
-                time TEXT NOT NULL,
-                lat REAL NOT NULL,
-                lon REAL NOT NULL,
-                hr INTEGER,
-                FOREIGN KEY (ride_id) REFERENCES rides (id)
-            )
-            """
-        )
-
         conn.commit()
         conn.close()
 
@@ -178,40 +163,3 @@ class BikeCommuteDB:
         conn.close()
         return result["count"] > 0
 
-    def insert_trackpoints(self, ride_id, trackpoints):
-        """Insert trackpoints for a ride"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        for tp in trackpoints:
-            cursor.execute(
-                """
-                INSERT INTO trackpoints (ride_id, time, lat, lon, hr)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (ride_id, tp.get("time"), tp.get("lat"), tp.get("lon"), tp.get("hr"))
-            )
-
-        conn.commit()
-        conn.close()
-
-    def get_trackpoints(self, ride_id):
-        """Get all trackpoints for a ride"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT * FROM trackpoints WHERE ride_id = ? ORDER BY time ASC",
-            (ride_id,)
-        )
-        trackpoints = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return trackpoints
-
-    def get_ride_by_id(self, ride_id):
-        """Get a specific ride by ID"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM rides WHERE id = ?", (ride_id,))
-        ride = cursor.fetchone()
-        conn.close()
-        return dict(ride) if ride else None
